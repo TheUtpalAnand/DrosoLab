@@ -272,18 +272,18 @@ class ZoomableGraphicsView(QGraphicsView):
                 # if ok: # This 'if ok:' is now redundant due to the early return
                 self.parent.push_undo()
                 points = self.order_points_clockwise()
-                    left = int(min(p.x() for p in points))
-                    right = int(max(p.x() for p in points))
-                    top = int(min(p.y() for p in points))
-                    bottom = int(max(p.y() for p in points))
-                    if left != right and top != bottom:
+                left = int(min(p.x() for p in points))
+                right = int(max(p.x() for p in points))
+                top = int(min(p.y() for p in points))
+                bottom = int(max(p.y() for p in points))
+                if left != right and top != bottom:
                         col = ColumnConfig(left=left, right=right, top=top, bottom=bottom, rows=rows)
                         self.parent.columns.append(col)
                         self.parent.selected_column_idx = len(self.parent.columns)
-                    else:
+                else:
                         QMessageBox.warning(self, "Invalid Rectangle", "The points do not form a valid rectangle.")
-                    self.dot_points = []
-                    self.parent.update_display()
+                self.dot_points = []
+                self.parent.update_display()
             except Exception as e:
                 logging.error(f"Error creating column from points: {e}")
                 self.parent.processing_dialog = False
