@@ -175,12 +175,34 @@ class ZoomableGraphicsView(QGraphicsView):
         pos = self.mapToScene(event.position().toPoint())
         img_pos = self.scene_to_image_pos(pos)
         if self.is_within_image(img_pos):
-            if self.dragging and self.selected_column is not None and self.selected_point is not None:
-                self.setCursor(Qt.SizeAllCursor)
+            if self.dragging and self.selected_column is not None and self.selected_point is not None: # This is when resizing an existing column
+                self.setCursor(Qt.CrossCursor)
                 col = self.parent.columns[self.selected_column]
-                points = col.get_points()
-                points[self.selected_point] = img_pos
-                col.update_from_points(points)  # Update bounds based on new point
+                new_x = int(img_pos.x())
+                new_y = int(img_pos.y())
+
+                # self.selected_point is 0:TL, 1:TR, 2:BR, 3:BL
+                if self.selected_point == 0:  # Top-left
+                    col.left = new_x
+                    col.top = new_y
+                elif self.selected_point == 1:  # Top-right
+                    col.right = new_x
+                    col.top = new_y
+                elif self.selected_point == 2:  # Bottom-right
+                    col.right = new_x
+                    col.bottom = new_y
+                elif self.selected_point == 3:  # Bottom-left
+                    col.left = new_x
+                    col.bottom = new_y
+
+                # Ensure that left < right and top < bottom.
+                # If dragging, e.g., the left edge past the right edge, they swap.
+                if col.left > col.right:
+                    col.left, col.right = col.right, col.left
+
+                if col.top > col.bottom:
+                    col.top, col.bottom = col.bottom, col.top
+
                 self.parent.update_display()
             elif self.mode == 'drag' and self.drawing:
                 self.setCursor(Qt.CrossCursor)
@@ -239,24 +261,29 @@ class ZoomableGraphicsView(QGraphicsView):
             self.parent.processing_dialog = True
             try:
                 rows, ok = QInputDialog.getInt(
-                    self, "Set Rows", "Number of table rows:", 5, 1, 100, 15
+                    self, "Set Rows", "Number of table rows:", 5, 1, 100, 1
                 )
-                self.parent.processing_dialog = False
-                if ok:
-                    self.parent.push_undo()
-                    points = self.order_points_clockwise()
-                    left = int(min(p.x() for p in points))
-                    right = int(max(p.x() for p in points))
-                    top = int(min(p.y() for p in points))
-                    bottom = int(max(p.y() for p in points))
-                    if left != right and top != bottom:
+                self.parent.processing_dialog = False # Moved this up to be set regardless
+                if not ok: # User cancelled
+                    self.dot_points = []
+                    self.parent.update_display()
+                    return
+
+                # if ok: # This 'if ok:' is now redundant due to the early return
+                self.parent.push_undo()
+                points = self.order_points_clockwise()
+                left = int(min(p.x() for p in points))
+                right = int(max(p.x() for p in points))
+                top = int(min(p.y() for p in points))
+                bottom = int(max(p.y() for p in points))
+                if left != right and top != bottom:
                         col = ColumnConfig(left=left, right=right, top=top, bottom=bottom, rows=rows)
                         self.parent.columns.append(col)
                         self.parent.selected_column_idx = len(self.parent.columns)
-                    else:
+                else:
                         QMessageBox.warning(self, "Invalid Rectangle", "The points do not form a valid rectangle.")
-                    self.dot_points = []
-                    self.parent.update_display()
+                self.dot_points = []
+                self.parent.update_display()
             except Exception as e:
                 logging.error(f"Error creating column from points: {e}")
                 self.parent.processing_dialog = False
@@ -682,6 +709,22 @@ class CalibrationTool(QMainWindow):
                     if i > 0:
                         cv2.line(preview, (int(warp_points[i-1].x()), int(warp_points[i-1].y())),
                                 (x, y), (255, 0, 255), LINE_THICKNESS)
+
+        if dot_points: # Draw dot_points if they exist
+            for i, pt in enumerate(dot_points):
+                x, y = int(pt.x()), int(pt.y())
+                if 0 <= x < image.shape[1] and 0 <= y < image.shape[0]:
+                    cv2.circle(preview, (x, y), 5, (0, 255, 255), -1) # Yellow circle
+                    if i > 0:
+                        prev_x, prev_y = int(dot_points[i-1].x()), int(dot_points[i-1].y())
+                        if 0 <= prev_x < image.shape[1] and 0 <= prev_y < image.shape[0]:
+                             cv2.line(preview, (prev_x, prev_y), (x,y), (0, 255, 255), LINE_THICKNESS)
+            if len(dot_points) == 4: # If 4 points, close the polygon
+                p3_x, p3_y = int(dot_points[3].x()), int(dot_points[3].y())
+                p0_x, p0_y = int(dot_points[0].x()), int(dot_points[0].y())
+                if (0 <= p3_x < image.shape[1] and 0 <= p3_y < image.shape[0] and
+                    0 <= p0_x < image.shape[1] and 0 <= p0_y < image.shape[0]):
+                    cv2.line(preview, (p3_x, p3_y), (p0_x, p0_y), (0, 255, 255), LINE_THICKNESS)
         return preview
 
     def delete_column(self):
